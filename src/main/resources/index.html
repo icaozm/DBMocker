@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8"/>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>DBMock</title>
+
+    <link
+            rel="stylesheet"
+            href="https://stackpath.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css"
+            crossorigin="anonymous"
+    />
+
+    <style>
+        .glyphicon-refresh-animate {
+            animation: spin 1s infinite linear;
+        }
+
+        @keyframes spin {
+            from {
+                transform: rotate(0deg);
+            }
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* 主键红底白字 */
+        .field-key {
+            background-color: #ff6269 !important;
+            color: #fff !important;
+        }
+
+        /* 非空粉底 */
+        .field-notnull {
+            background-color: #ffe7ee !important;
+        }
+
+        /* 表格输入框紧凑 */
+        input.form-control {
+            height: 28px;
+            padding: 4px 6px;
+            font-size: 12px;
+        }
+
+        /* 规则单元格：下拉 + 输入框并排 */
+        .rule-cell {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
+
+        .rule-cell select {
+            width: 120px;
+            height: 28px;
+            font-size: 12px;
+            padding: 3px 6px;
+        }
+
+        .rule-cell input {
+            flex: 1;
+            margin: 0;
+            height: 28px;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="row">
+        <div class="panel panel-default">
+            <div class="panel-body">
+                <div class="row">
+                    <div class="col-md-2 text-right">
+                        <button class="btn btn-primary" data-toggle="modal" data-target="#myModal">
+                            DB参数
+                        </button>
+                    </div>
+                    <div class="col-md-8">
+                        <input
+                                type="text"
+                                class="form-control"
+                                value="user"
+                                name="searchTableName"
+                                placeholder="请输入表名"
+                        />
+                    </div>
+                    <div class="col-md-2">
+                        <button onclick="submitSearchForm()" class="btn btn-primary">查询</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div id="tabs" class="col-md-2"></div>
+        <div id="panels" class="col-md-10"></div>
+    </div>
+
+    <div class="text-center"
+         id="loadingMask"
+         style="display:none; margin:20px;">
+        <span class="glyphicon glyphicon-refresh glyphicon-refresh-animate"></span>
+        正在加载字段信息...
+    </div>
+
+    <!-- DB参数弹窗 -->
+    <div class="modal fade" id="myModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h4 class="modal-title">数据库参数</h4>
+                </div>
+                <form id="myForm">
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <label>数据库类型</label>
+                            <select class="form-control" name="dbType">
+                                <option>MYSQL</option>
+                                <option>ORACLE</option>
+                                <option>DB2</option>
+                                <option>SQLSERVER</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>IP地址</label>
+                            <input
+                                    type="text"
+                                    class="form-control"
+                                    name="ip"
+                                    value="localhost"
+                            />
+                        </div>
+                        <div class="form-group">
+                            <label>端口</label>
+                            <input type="text" class="form-control" name="port" value="3400"/>
+                        </div>
+                        <div class="form-group">
+                            <label>库名</label>
+                            <input type="text" class="form-control" name="dataBaseName" value="szhb"/>
+                        </div>
+                        <div class="form-group">
+                            <label>用户名</label>
+                            <input type="text" class="form-control" name="userName" value="root"/>
+                        </div>
+                        <div class="form-group">
+                            <label>密码</label>
+                            <input type="text" class="form-control" name="password" value="124523"/>
+                        </div>
+                    </div>
+                </form>
+                <div class="modal-footer">
+                    <button class="btn btn-default" data-dismiss="modal">关闭</button>
+                    <button class="btn btn-primary" onclick="submitForm()">初始化</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 通用提示弹窗 -->
+    <div class="modal fade" id="alertModal" tabindex="-1" role="dialog">
+        <div class="modal-dialog modal-sm">
+            <div class="modal-content">
+                <div class="modal-header bg-danger">
+                    <button type="button" class="close" data-dismiss="modal">&times;</button>
+                    <h4 class="modal-title">提示</h4>
+                </div>
+                <div class="modal-body">
+                    <p id="alertModalMsg">这里是提示信息</p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-primary" data-dismiss="modal">确定</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<!-- 脚本 -->
+<script src="http://localhost:9527/bootstrap/js/jquery.min.js"></script>
+<script src="http://localhost:9527/bootstrap/js/bootstrap.min.js"></script>
+<script>
+    window._fieldMap = {}; // 缓存字段数据，用于规则类型联动
+
+    $(document).ready(function () {
+        // Enter 键触发查询
+        $('input[name="searchTableName"]').on("keydown", function (e) {
+            if (e.key === "Enter") submitSearchForm();
+        });
+
+        // tab 点击加载字段
+        $("#tabs").on("click", "a", function (e) {
+            e.preventDefault();
+            const $target = $(e.target);
+            const tableName = $target.text();
+
+            $("#panels").empty();
+            $("#loadingMask").show();
+
+            $.ajax({
+                url: "http://localhost:9527/tableInfo?tableName=" + tableName,
+                dataType: "text",
+                success: function (data) {
+                    $("#loadingMask").hide();
+                    const rtn = JSON.parse(data);
+                    window._fieldMap = {};
+
+                    const panel = $('<div class="panel panel-default"></div>');
+                    panel.append(`<div class="panel-heading"><h4>${rtn.tableDesc} (${rtn.tableName})</h4></div>`);
+
+                    const table = $(`
+                                    <table class="table table-condensed table-bordered table-hover" style="table-layout: fixed;">
+                                      <thead>
+                                        <tr>
+                                          <th style="width: 15%;">字段名</th>
+                                          <th style="width: 15%;">类型/长度</th>
+                                          <th style="width: 20%;">描述</th>
+                                          <th style="width: 15%;">默认值</th>
+                                          <th style="width: 35%;">规则类型 & 表达式</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody></tbody>
+                                    </table>
+                                `);
+
+                    const tbody = table.find("tbody");
+
+                    rtn.fieldBeanList.forEach(field => {
+                        window._fieldMap[field.fieldName] = field;
+
+                        let trClass = "";
+                        if (rtn.keys.includes(field.fieldName)) trClass = "field-key";
+                        else if (field.isNullable === false) trClass = "field-notnull";
+
+                        const ruleSelectId = "ruleType_" + field.fieldName;
+                        const ruleInputId = "ruleExpr_" + field.fieldName;
+
+                        const tr = $(`
+                              <tr class="${trClass}">
+                                <td title="${field.fieldName}">${field.fieldName}</td>
+                                <td title="${field.fieldTypeNameDesc}">${field.fieldTypeNameDesc}</td>
+                                <td title="${field.desc || ""}">${field.desc || ""}</td>
+                                <td><input type="text" class="form-control input-sm default-value" data-field="${field.fieldName}" placeholder="默认值" /></td>
+                                <td>
+                                  <div class="rule-cell">
+                                    <select id="${ruleSelectId}" class="form-control input-sm rule-type" data-field="${field.fieldName}">
+                                      <option value="">请选择</option>
+                                      <option value="regex">表达式</option>
+                                      <option value="range">金额范围</option>
+                                      <option value="date">日期范围</option>
+                                      <option value="enum">枚举值</option>
+                                      <option value="name">姓名</option>
+                                      <option value="phone">手机号</option>
+                                      <option value="email">邮箱</option>
+                                    </select>
+                                    <input id="${ruleInputId}" type="text" class="form-control input-sm rule-expr" data-field="${field.fieldName}" placeholder="规则表达式" />
+                                  </div>
+                                </td>
+                              </tr>
+                            `);
+
+                        tbody.append(tr);
+
+                        // 默认规则类型 + 表达式填充
+                        let defaultRule = "", defaultType = "";
+                        if (field.fieldTypeName.includes("INT") || field.fieldTypeName.includes("BIGINT")) {
+                            defaultRule = "0-1000";
+                            defaultType = "range";
+                        } else if (field.fieldTypeName.includes("VARCHAR")) {
+                            defaultRule = `^[a-zA-Z0-9_]{1,${field.fieldLen}}$`;
+                            defaultType = "regex";
+                        } else if (field.fieldTypeName.includes("DATE") || field.fieldTypeName.includes("TIMESTAMP")) {
+                            defaultRule = "2000-01-01~2025-12-31";
+                            defaultType = "date";
+                        } else if (field.fieldTypeName.includes("CHAR")) {
+                            defaultRule = "";
+                            defaultType = "enum";
+                        }
+                        if (!$("#" + ruleSelectId).val()) {
+                            $("#" + ruleSelectId).val(defaultType);
+                        }
+                        if (!$("#" + ruleInputId).val()) {
+                            $("#" + ruleInputId).val(defaultRule);
+                        }
+                    });
+
+                    panel.append(table);
+
+                    // ✅ 这里是新增的生成条数输入框和按钮
+                    const controlRow = $(`
+                          <div class="form-inline" style="margin: 15px 10px;">
+                            <label for="rowCount" class="mr-2">生成条数：</label>
+                            <input type="number" class="form-control" id="rowCount" value="100" min="1" style="width:100px;margin-right:15px;" />
+                            <button class="btn btn-success" onclick="generateMockData('${rtn.tableName}')">生成数据</button>
+                          </div>
+                        `);
+                    panel.append(controlRow);
+
+                    $("#panels").append(panel);
+
+                    $(".rule-type").off("change").on("change", function () {
+                        const val = $(this).val();
+                        const fieldName = $(this).data("field");
+                        const input = $("#ruleExpr_" + fieldName);
+                        let example = "";
+                        switch (val) {
+                            case "range":
+                                example = "1-1000";
+                                break;
+                            case "regex":
+                                example = "regex:^[a-zA-Z0-9_]{1,30}$";
+                                break;
+                            case "date":
+                                example = "2020-01-01~2025-12-31";
+                                break;
+                            case "enum":
+                                example = "";
+                                break;
+                            case "email":
+                                example = "";
+                                break;
+                            case "phone":
+                                example = "";
+                                break;
+                            case "name":
+                                example = "";
+                                break;
+                            default:
+                                example = "";
+                        }
+                        input.val(example);
+                    });
+                },
+                error: function () {
+                    $("#loadingMask").hide();
+                    showAlert("字段加载失败");
+                }
+            });
+
+            $(".tab").removeClass("active");
+            $target.addClass("active");
+        });
+    });
+
+    function submitSearchForm() {
+        $.ajax({
+            url:
+                "http://localhost:9527/tableList?searchTableName=" +
+                $('input[name="searchTableName"]').val(),
+            success: function (data) {
+                if (JSON.stringify(data) === "{}") {
+                    showAlert("查无此表");
+                    return;
+                }
+                $("#tabs").empty();
+                $.each(data, function (key, value) {
+                    const tab = $(
+                        '<a tab="tab-' +
+                        value +
+                        '" href="#" class="tab list-group-item">' +
+                        value +
+                        "</a>"
+                    );
+                    if (key === 1) tab.addClass("active");
+                    tab.appendTo($("#tabs"));
+                });
+            },
+            error: function () {
+                showAlert("表查询失败");
+            },
+        });
+    }
+
+
+    function generateMockData(tableName) {
+        const rowCount = parseInt($("#rowCount").val());
+        if (isNaN(rowCount) || rowCount <= 0) {
+            showAlert("请输入有效的造数条数！");
+            return;
+        }
+
+        const fields = [];
+        let valid = true;
+        // 需要 ruleExpr 非空的类型
+        const typesRequireExpr = ["regex", "range", "date", "enum"];
+
+        $("#panels table tbody tr").each(function () {
+            const $tr = $(this);
+            const fieldName = $tr.find("td").eq(0).text().trim();
+            const ruleType = $tr.find("select.rule-type").val();
+            const ruleExpr = $tr.find("input.rule-expr").val();
+            const defaultVal = $tr.find("input.default-value").val();
+            const isNotNull = $tr.hasClass("field-notnull");
+
+            // 必输字段校验逻辑
+            if (isNotNull && !ruleType && !defaultVal) {
+                valid = false;
+                return false; // 中断 each 循环
+            }
+
+            // 仅部分类型需要 ruleExpr 非空
+            if (ruleType) {
+                const requiresExpr = typesRequireExpr.includes(ruleType);
+                if (requiresExpr && !ruleExpr) {
+                    valid = false;
+                    return false; // 中断 each
+                }
+                // email、phone 类型允许 ruleExpr 为空
+                fields.push({
+                    fieldName: fieldName,
+                    ruleType: ruleType,
+                    ruleExpr: ruleExpr || "",
+                    defaultValue: defaultVal || ""
+                });
+            } else if (defaultVal) {
+                fields.push({
+                    fieldName: fieldName,
+                    ruleType: "",
+                    ruleExpr: "",
+                    defaultValue: defaultVal
+                });
+            }
+        });
+
+        if (!valid) return;
+
+        const payload = {
+            tableName: tableName,
+            rowCount: rowCount,
+            fields: fields
+        };
+
+        $.ajax({
+            type: "POST",
+            url: "http://localhost:9527/generate",
+            data: JSON.stringify(payload),
+            contentType: "application/json",
+            success: function () {
+                showAlert("成功生成 " + rowCount + " 条数据！");
+            },
+            error: function () {
+                showAlert("生成数据失败！");
+            }
+        });
+    }
+
+    function submitForm() {
+        const data = {};
+        $("#myForm")
+            .serializeArray()
+            .forEach((item) => (data[item.name] = item.value));
+        $.ajax({
+            type: "POST",
+            url: "http://localhost:9527/init",
+            data: JSON.stringify(data),
+            contentType: "application/json",
+            success: function () {
+                $("#myModal").modal("hide");
+            },
+            error: function () {
+                showAlert("数据库参数初始化失败！");
+            },
+        });
+    }
+
+    function showAlert(msg) {
+        $("#alertModalMsg").text(msg);
+        $("#alertModal").modal("show");
+    }
+</script>
+</body>
+</html>

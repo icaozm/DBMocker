@@ -26,39 +26,38 @@ public class TableListHandler implements HttpHandler {
 
     @Override
     public void handle(HttpExchange httpExchange) {
-        Connection connection = null;
-        try {
+        try (Connection connection = DbUtil.getCon()) {
             if (properties == null) {
                 HttpResult.failure(httpExchange, "请先设置DB参数！");
+                return;
             }
             String query = httpExchange.getRequestURI().getQuery();
             Map<String, String> querMap = HttpUtil.decodeParamMap(query, Charset.defaultCharset());
-            if ("".equals(querMap.get("searchTableName"))) {
-                HttpResult.failure(httpExchange, "输入查询参数！");
+            String searchTableName = querMap.get("searchTableName");
+            if (searchTableName == null || searchTableName.trim().isEmpty()) {
+                HttpResult.failure(httpExchange, "请输入查询表名！");
+                return;
             }
-            connection = DbUtil.getCon();
+
             DatabaseMetaData metaData = connection.getMetaData();
 
-            //检索数据库中的列
-            ResultSet set = metaData.getTables(properties.getDataBaseName(), null,
-                    "%" + querMap.get("searchTableName") + "%", null);
-            Map<String, String> tables = new HashMap<>(16);
-            //打印列名称和大小
-            int i = 1;
-            while (set.next()) {
-                tables.put(String.valueOf(i++), set.getString("Table_NAME"));
-            }
-            if (tables.size() > 10) {
-                HttpResult.failure(httpExchange, "查询结果超过十条，请重新输入查询条件！");
-            } else {
-                HttpResult.success(httpExchange, JSONUtil.toJsonStr(tables));
+            // 使用try-with-resources确保ResultSet资源正确关闭
+            try (ResultSet set = metaData.getTables(properties.getDataBaseName(), null,
+                    "%" + searchTableName + "%", new String[]{"TABLE"})) {
+                Map<String, String> tables = new HashMap<>(16);
+                int i = 1;
+                while (set.next()) {
+                    tables.put(String.valueOf(i++), set.getString("TABLE_NAME"));
+                }
+                if (tables.size() > 10) {
+                    HttpResult.failure(httpExchange, "查询结果超过十条，请重新输入查询条件！");
+                } else {
+                    HttpResult.success(httpExchange, JSONUtil.toJsonStr(tables));
+                }
             }
         } catch (Exception e) {
             e.printStackTrace();
             HttpResult.failure(httpExchange, e.getMessage());
-        } finally {
-            DbUtil.close(connection);
         }
-
     }
 }

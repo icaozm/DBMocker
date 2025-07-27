@@ -10,7 +10,6 @@ import com.db.mock.comon.bean.TableBean;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 
-import java.io.IOException;
 import java.nio.charset.Charset;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
@@ -30,9 +29,8 @@ import static com.db.mock.comon.DbUtil.properties;
 public class TableInfoHandler implements HttpHandler {
 
     @Override
-    public void handle(HttpExchange httpExchange) throws IOException {
-        Connection conn = DbUtil.getConnection();
-        try {
+    public void handle(HttpExchange httpExchange) {
+        try (Connection conn = DbUtil.getCon()) {
             String query = httpExchange.getRequestURI().getQuery();
             Map<String, String> queryMap = HttpUtil.decodeParamMap(query, Charset.defaultCharset());
 
@@ -54,27 +52,8 @@ public class TableInfoHandler implements HttpHandler {
             ResultSet rs = dbmd.getColumns(properties.getDataBaseName(), properties.getDataBaseName(), queryMap.get("tableName"), null);
             List<FieldBean> fieldBeanList = new ArrayList<>();
             while (rs.next()) {
-                FieldBean fieldBean = new FieldBean();
-                fieldBean.setFieldName(rs.getString("COLUMN_NAME"));
-                fieldBean.setFieldType(MapperSqlType.map(rs.getInt("DATA_TYPE")));
-                fieldBean.setFieldLen(rs.getInt("COLUMN_SIZE"));
-                fieldBean.setDigits(rs.getInt("DECIMAL_DIGITS"));
-                fieldBean.setFieldTypeName(rs.getString("TYPE_NAME"));
-                String tail = "";
-                if (fieldBean.getFieldLen() != 0) {
-                    tail += "(" + fieldBean.getFieldLen();
-                }
-                if (fieldBean.getDigits() != 0) {
-                    tail += "," + fieldBean.getDigits() + ")";
-                } else {
-                    tail += ")";
-                }
-                fieldBean.setFieldTypeNameDesc(fieldBean.getFieldTypeName() + tail);
-                fieldBean.setNullable(rs.getInt("NULLABLE") == 0 ? false : true);
-                System.out.println("nullable" + rs.getInt("NULLABLE"));
-                fieldBean.setDesc(rs.getString("REMARKS"));
-                fieldBean.setDefaultValue(rs.getString("COLUMN_DEF"));
-                fieldBean.setIndex(rs.getInt("ORDINAL_POSITION"));
+                // 获取属性对象值
+                FieldBean fieldBean = createFieldBean(rs);
                 fieldBeanList.add(fieldBean);
             }
             tableBean.setFieldBeanList(fieldBeanList);
@@ -82,11 +61,30 @@ public class TableInfoHandler implements HttpHandler {
             System.out.println(JSONUtil.toJsonStr(tableBean));
             HttpResult.success(httpExchange, JSONUtil.toJsonStr(tableBean));
         } catch (Exception e) {
-
-        } finally {
-            DbUtil.close(conn);
+            e.printStackTrace();
         }
+    }
 
-
+    private FieldBean createFieldBean(ResultSet rs) throws Exception {
+        FieldBean fieldBean = new FieldBean();
+        fieldBean.setFieldName(rs.getString("COLUMN_NAME"));
+        fieldBean.setFieldType(MapperSqlType.map(rs.getInt("DATA_TYPE")));
+        fieldBean.setFieldLen(rs.getInt("COLUMN_SIZE"));
+        fieldBean.setDigits(rs.getInt("DECIMAL_DIGITS"));
+        fieldBean.setFieldTypeName(rs.getString("TYPE_NAME"));
+        String tail = "";
+        if (fieldBean.getFieldLen() > 0) {
+            tail = "(" + fieldBean.getFieldLen();
+            if (fieldBean.getDigits() > 0) {
+                tail += "," + fieldBean.getDigits();
+            }
+            tail += ")";
+        }
+        fieldBean.setFieldTypeNameDesc(fieldBean.getFieldTypeName() + tail);
+        fieldBean.setNullable(rs.getInt("NULLABLE") == 0 ? false : true);
+        fieldBean.setDesc(rs.getString("REMARKS"));
+        fieldBean.setDefaultValue(rs.getString("COLUMN_DEF"));
+        fieldBean.setIndex(rs.getInt("ORDINAL_POSITION"));
+        return fieldBean;
     }
 }

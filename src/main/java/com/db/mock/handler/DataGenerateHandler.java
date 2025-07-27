@@ -2,6 +2,7 @@ package com.db.mock.handler;
 
 import cn.hutool.core.io.IoUtil;
 import cn.hutool.json.JSONUtil;
+import com.db.mock.comon.DbUtil;
 import com.db.mock.comon.bean.FieldBeanInfo;
 import com.db.mock.comon.bean.GenerateInfoBean;
 import com.db.mock.handler.rule.RuleContext;
@@ -13,7 +14,6 @@ import java.io.IOException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -36,11 +36,9 @@ public class DataGenerateHandler implements HttpHandler {
         }
 
 
-        try (Connection conn = DriverManager.getConnection("jdbc:mysql://localhost:3400/szhb?useSSL=false&serverTimezone=UTC", "root", "124523")) {
+        try (Connection conn = DbUtil.getCon()) {
             conn.setAutoCommit(false);
-
             String sql = buildInsertSQL(tableName, columnNames);
-            System.out.println(sql);
             try (PreparedStatement ps = conn.prepareStatement(sql)) {
                 for (int i = 0; i < rowCount; i++) {
                     for (int j = 0; j < fields.size(); j++) {
@@ -51,7 +49,6 @@ public class DataGenerateHandler implements HttpHandler {
                 }
                 ps.executeBatch();
             }
-
             conn.commit();
 
             // 返回响应
@@ -61,7 +58,6 @@ public class DataGenerateHandler implements HttpHandler {
             exchange.sendResponseHeaders(200, bytes.length);
             exchange.getResponseBody().write(bytes);
             exchange.getResponseBody().close();
-
         } catch (Exception e) {
             e.printStackTrace();
             String response = "{\"code\":500,\"msg\":\"生成失败: " + e.getMessage() + "\"}";
@@ -70,8 +66,6 @@ public class DataGenerateHandler implements HttpHandler {
             exchange.getResponseBody().write(bytes);
             exchange.getResponseBody().close();
         }
-
-
     }
 
     private String buildInsertSQL(String tableName, List<String> columns) {
